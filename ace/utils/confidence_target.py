@@ -8,7 +8,7 @@ from torch import Tensor
 
 @dataclass
 class AbsoluteRiskTargetConfig:
-    """Absolute-risk target settings from Sec.3.1"""
+    """Absolute-risk target settings"""
 
     q_low: float = 0.1
     q_high: float = 0.9

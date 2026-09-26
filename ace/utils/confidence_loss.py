@@ -9,7 +9,7 @@ from torch import Tensor
 
 @dataclass(frozen=True)
 class ConfidenceLossConfig:
-    """Asymmetric L1 objective from Eq. (8)."""
+    """Asymmetric L1 objective"""
 
     loss_type: str = "l1"
     asymmetric: bool = True
