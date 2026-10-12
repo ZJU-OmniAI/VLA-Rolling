@@ -5,7 +5,7 @@ from torch import Tensor
 
 
 def mean_visual_tokens(prefix_embs: Tensor, tokens: Tensor, image_masks: list[Tensor]) -> Tensor:
-    """Mean-pool only PI0.5 image-token embeddings, excluding language tokens."""
+    """Mean-pool PI0.5 image-token embeddings, excluding language tokens."""
 
     if prefix_embs.ndim != 3 or tokens.ndim != 2:
         raise ValueError("prefix_embs must be [B,S,D] and tokens must be [B,T].")

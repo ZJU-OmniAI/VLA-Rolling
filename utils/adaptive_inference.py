@@ -1,3 +1,5 @@
+# ruff: noqa: N802, N803, N806, UP037
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -28,7 +30,7 @@ class AdaptiveInferenceConfig:
         max_denoise_steps: int | None = None,
         min_denoise_steps: int = 1,
         confidence_reduce: str = "min",
-    ) -> "AdaptiveInferenceConfig":
+    ) -> AdaptiveInferenceConfig:
         """Build chunk hyperparameters from a main VLA policy config.
 
         PI05 exposes ``chunk_size`` and ``num_inference_steps``; other VLA
@@ -37,7 +39,11 @@ class AdaptiveInferenceConfig:
 
         H = int(vla_config.chunk_size)
         K = int(execute_steps if execute_steps is not None else getattr(vla_config, "n_action_steps", 10))
-        max_steps = int(max_denoise_steps if max_denoise_steps is not None else getattr(vla_config, "num_inference_steps", 10))
+        max_steps = int(
+            max_denoise_steps
+            if max_denoise_steps is not None
+            else getattr(vla_config, "num_inference_steps", 10)
+        )
         return cls(
             H=H,
             K=K,
@@ -78,7 +84,7 @@ def build_confidence_guided_init(
 ) -> Tensor:
     B, L, D = inherited_action.shape
     if L != H - K:
-        raise ValueError(f"inherited horizon L={L} does not match H-K={H-K}.")
+        raise ValueError(f"inherited horizon L={L} does not match H-K={H - K}.")
     if confidence.shape != (B, L):
         raise ValueError(f"confidence must be {(B, L)}, got {tuple(confidence.shape)}.")
     if noise is None:

@@ -1,3 +1,5 @@
+# ruff: noqa: N802
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -6,11 +8,11 @@ from typing import Any
 import torch
 from torch import Tensor
 
-from lerobot.configs.policies import PreTrainedConfig
 import lerobot.policies.pi05.configuration_pi05  # noqa: F401
+import lerobot.policies.pi05.processor_pi05  # noqa: F401
+from lerobot.configs.policies import PreTrainedConfig
 from lerobot.policies.pi05.modeling_pi05 import PI05Policy, make_att_2d_masks
 from lerobot.processor import PolicyProcessorPipeline
-import lerobot.policies.pi05.processor_pi05  # noqa: F401
 from lerobot.utils.constants import (
     ACTION,
     OBS_LANGUAGE_ATTENTION_MASK,
@@ -18,8 +20,6 @@ from lerobot.utils.constants import (
     OBS_STATE,
     POLICY_PREPROCESSOR_DEFAULT_NAME,
 )
-from ace.utils.flow_schedule import flow_times
-from ace.utils.pi05_visual import mean_visual_tokens
 
 
 class FrozenPI05Adapter:
@@ -58,11 +58,31 @@ class FrozenPI05Adapter:
         return int(self.policy.config.output_features[ACTION].shape[0])
 
     @property
+    def proprio_dim(self) -> int:
+        return int(self.policy.config.input_features[OBS_STATE].shape[0])
+
+    @property
+    def visual_dim(self) -> int:
+        paligemma = self.policy.model.paligemma_with_expert.paligemma
+        config = getattr(paligemma, "config", None)
+        if config is None:
+            config = getattr(paligemma, "language_model", None).config
+        return int(getattr(config, "hidden_size", 2048))
+
+    @property
     def max_steps(self) -> int:
         return int(self.policy.config.num_inference_steps)
 
     def preprocess_one(self, obs: dict[str, Any], action: Tensor | None = None) -> dict[str, Any]:
         raw = dict(obs)
+        expected_images = list(self.policy.config.image_features)
+        if not any(key in raw for key in expected_images):
+            source_key = next(
+                (key for key in ("observation.images.image", "observation.image") if key in raw),
+                None,
+            )
+            if source_key is not None and expected_images:
+                raw[expected_images[0]] = raw[source_key]
         if action is not None:
             raw[ACTION] = action
         return self.preprocessor(raw)
@@ -86,7 +106,9 @@ class FrozenPI05Adapter:
                 out[key] = values
         return out
 
-    def preprocess_batch(self, observations: list[dict[str, Any]], actions: list[Tensor] | None = None) -> dict[str, Any]:
+    def preprocess_batch(
+        self, observations: list[dict[str, Any]], actions: list[Tensor] | None = None
+    ) -> dict[str, Any]:
         items = [
             self.preprocess_one(obs, None if actions is None else actions[i])
             for i, obs in enumerate(observations)
@@ -108,10 +130,25 @@ class FrozenPI05Adapter:
         masks = batch[f"{OBS_LANGUAGE_ATTENTION_MASK}"]
         return images, img_masks, tokens, masks
 
+    def _fit_proprio(self, state: Tensor | None) -> Tensor | None:
+        if state is None:
+            return None
+        state = state.to(device=self.device, dtype=torch.float32)
+        if state.ndim > 2:
+            state = state.reshape(state.shape[0], -1)
+        expected = self.proprio_dim
+        if state.shape[-1] > expected:
+            return state[..., :expected]
+        if state.shape[-1] < expected:
+            return torch.nn.functional.pad(state, (0, expected - state.shape[-1]))
+        return state
+
     @torch.no_grad()
     def encode_condition(self, batch: dict[str, Tensor]) -> dict[str, Tensor]:
         images, img_masks, tokens, masks = self._images_tokens(batch)
-        prefix_embs, prefix_pad_masks, prefix_att_masks = self.policy.model.embed_prefix(images, img_masks, tokens, masks)
+        prefix_embs, prefix_pad_masks, prefix_att_masks = self.policy.model.embed_prefix(
+            images, img_masks, tokens, masks
+        )
         prefix_att_2d_masks = make_att_2d_masks(prefix_pad_masks, prefix_att_masks)
         prefix_position_ids = torch.cumsum(prefix_pad_masks, dim=1) - 1
         prefix_att_2d_masks_4d = self.policy.model._prepare_attention_masks_4d(prefix_att_2d_masks)
@@ -123,10 +160,11 @@ class FrozenPI05Adapter:
             inputs_embeds=[prefix_embs, None],
             use_cache=True,
         )
-        visual_embed = mean_visual_tokens(prefix_embs, tokens, img_masks)
+        mask = prefix_pad_masks.to(dtype=prefix_embs.dtype).unsqueeze(-1)
+        visual_embed = (prefix_embs * mask).sum(dim=1) / mask.sum(dim=1).clamp(min=1.0)
         return {
             "visual_embed": visual_embed.float(),
-            "proprio": batch.get(OBS_STATE),
+            "proprio": self._fit_proprio(batch.get(OBS_STATE)),
             "prefix_pad_masks": prefix_pad_masks,
             "past_key_values": past_key_values,
         }
@@ -138,11 +176,9 @@ class FrozenPI05Adapter:
         *,
         init_action: Tensor | None = None,
         num_steps: int | None = None,
-        full_steps: int | None = None,
     ) -> Tensor:
         if num_steps is None:
             num_steps = self.max_steps
-        full_steps = self.max_steps if full_steps is None else int(full_steps)
         prefix_pad_masks = condition["prefix_pad_masks"]
         past_key_values = condition["past_key_values"]
         bsize = prefix_pad_masks.shape[0]
@@ -155,9 +191,9 @@ class FrozenPI05Adapter:
                 pad = self.policy.config.max_action_dim - x_t.shape[-1]
                 x_t = torch.nn.functional.pad(x_t, (0, pad))
 
-        steps = int(num_steps)
-        dt = -1.0 / full_steps if steps > 0 else 0.0
-        for time_value in (1.0 - flow_times(steps, full_steps, device=self.device)).tolist():
+        dt = -1.0 / int(num_steps) if int(num_steps) > 0 else 0.0
+        for step in range(int(num_steps)):
+            time_value = 1.0 + step * dt
             timestep = torch.full((bsize,), time_value, dtype=torch.float32, device=self.device)
             v_t = self.policy.model.denoise_step(
                 prefix_pad_masks=prefix_pad_masks,

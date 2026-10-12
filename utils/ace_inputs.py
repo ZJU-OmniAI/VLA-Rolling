@@ -32,9 +32,7 @@ def build_horizon_action_input(
             dtype=inherited_action.dtype,
         )
     if noise.shape != (batch, padding_length, action_dim):
-        raise ValueError(
-            f"noise must be {(batch, padding_length, action_dim)}, got {tuple(noise.shape)}."
-        )
+        raise ValueError(f"noise must be {(batch, padding_length, action_dim)}, got {tuple(noise.shape)}.")
     mask = torch.cat(
         [
             torch.ones(batch, valid_length, dtype=torch.bool, device=inherited_action.device),

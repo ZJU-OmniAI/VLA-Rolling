@@ -45,7 +45,7 @@ class EMAQuantileStats:
         self.q_high_value = torch.ones(self.horizon, device=device)
         self.num_updates = torch.tensor(0, dtype=torch.long, device=device)
 
-    def to(self, device: torch.device | str) -> "EMAQuantileStats":
+    def to(self, device: torch.device | str) -> EMAQuantileStats:
         self.q_low_value = self.q_low_value.to(device)
         self.q_high_value = self.q_high_value.to(device)
         self.num_updates = self.num_updates.to(device)

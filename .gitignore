@@ -1,0 +1,16 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+checkpoints/*
+!checkpoints/.gitkeep
+
+data/libero/
+data/metaworld_mt50/
+data/libero_plus/
+
+logs/
+eval_logs/
+outputs/
+wandb/
+*.log

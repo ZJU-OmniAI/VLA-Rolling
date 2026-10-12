@@ -1,3 +1,5 @@
+# ruff: noqa: N812
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -34,7 +36,9 @@ def confidence_loss(
 ) -> tuple[Tensor, dict[str, Tensor]]:
     cfg = config or ConfidenceLossConfig()
     if raw_confidence.shape != target_confidence.shape:
-        raise ValueError(f"confidence shape mismatch: {tuple(raw_confidence.shape)} vs {tuple(target_confidence.shape)}.")
+        raise ValueError(
+            f"confidence shape mismatch: {tuple(raw_confidence.shape)} vs {tuple(target_confidence.shape)}."
+        )
 
     if cfg.loss_type in {"l1", "mae"}:
         per_step = F.l1_loss(raw_confidence, target_confidence, reduction="none")
@@ -43,7 +47,9 @@ def confidence_loss(
     elif cfg.loss_type in {"masked_mse", "mse"}:
         per_step = F.mse_loss(raw_confidence, target_confidence, reduction="none")
     elif cfg.loss_type in {"bce", "binary_cross_entropy"}:
-        per_step = F.binary_cross_entropy(raw_confidence.clamp(1e-5, 1.0 - 1e-5), target_confidence, reduction="none")
+        per_step = F.binary_cross_entropy(
+            raw_confidence.clamp(1e-5, 1.0 - 1e-5), target_confidence, reduction="none"
+        )
     else:
         raise ValueError(f"Unsupported confidence loss type: {cfg.loss_type}")
 
@@ -51,8 +57,12 @@ def confidence_loss(
         over = raw_confidence > target_confidence
         weights = torch.where(
             over,
-            torch.as_tensor(cfg.over_confidence_weight, device=raw_confidence.device, dtype=raw_confidence.dtype),
-            torch.as_tensor(cfg.under_confidence_weight, device=raw_confidence.device, dtype=raw_confidence.dtype),
+            torch.as_tensor(
+                cfg.over_confidence_weight, device=raw_confidence.device, dtype=raw_confidence.dtype
+            ),
+            torch.as_tensor(
+                cfg.under_confidence_weight, device=raw_confidence.device, dtype=raw_confidence.dtype
+            ),
         )
         per_step = per_step * weights
 

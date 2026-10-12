@@ -188,7 +188,9 @@ class ACEModel(nn.Module):
         curr_visual = self.curr_visual_norm(self._pool_visual(curr_visual_embed))
         delta_visual = self.delta_visual_norm(self._pool_visual(delta_visual_embed))
         if curr_visual.shape != (batch, self.visual_dim):
-            raise ValueError(f"curr_visual_embed resolved to {tuple(curr_visual.shape)}, expected {(batch, self.visual_dim)}.")
+            raise ValueError(
+                f"curr_visual_embed resolved to {tuple(curr_visual.shape)}, expected {(batch, self.visual_dim)}."
+            )
         context = self.visual_proj(torch.cat([curr_visual, delta_visual], dim=-1))
 
         if self.proprio_proj is not None:

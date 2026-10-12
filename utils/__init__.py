@@ -9,14 +9,12 @@ from .adaptive_inference import (
 from .confidence_loss import ConfidenceLossConfig, confidence_loss
 from .confidence_target import AbsoluteRiskTargetConfig, EMAQuantileStats, absolute_risk_target
 from .flow_schedule import flow_times
-from .pi05_frozen_adapter import FrozenPI05Adapter
 
 __all__ = [
     "AbsoluteRiskTargetConfig",
     "AdaptiveInferenceConfig",
     "ConfidenceLossConfig",
     "EMAQuantileStats",
-    "FrozenPI05Adapter",
     "absolute_risk_target",
     "build_confidence_guided_init",
     "build_horizon_action_input",

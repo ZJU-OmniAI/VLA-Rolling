@@ -11,12 +11,11 @@ from pathlib import Path
 from typing import Any
 
 import torch
-
-from ace.model import ACEModel
-from ace.utils.ace_inputs import run_ace_forward
-from ace.utils.adaptive_inference import AdaptiveInferenceConfig, confidence_to_denoise_steps
-from ace.utils.flow_schedule import flow_times
-from ace.utils.pi05_visual import mean_visual_tokens
+from model import ACEModel
+from model.pi05.visual import mean_visual_tokens
+from utils.ace_inputs import run_ace_forward
+from utils.adaptive_inference import AdaptiveInferenceConfig, confidence_to_denoise_steps
+from utils.flow_schedule import flow_times
 
 
 @dataclass(frozen=True)
@@ -56,9 +55,13 @@ def parse_instrumented_args(argv: list[str]) -> tuple[InstrumentedConfig, list[s
         raise SystemExit(0)
     args, remaining = parser.parse_known_args(argv)
     return InstrumentedConfig(
-        mode=args.mode, checkpoint=args.checkpoint, execute_steps=args.execute_steps,
-        max_denoise_steps=args.max_denoise_steps, min_denoise_steps=args.min_denoise_steps,
-        confidence_reduce=args.confidence_reduce, max_task_attempts=args.max_task_attempts,
+        mode=args.mode,
+        checkpoint=args.checkpoint,
+        execute_steps=args.execute_steps,
+        max_denoise_steps=args.max_denoise_steps,
+        min_denoise_steps=args.min_denoise_steps,
+        confidence_reduce=args.confidence_reduce,
+        max_task_attempts=args.max_task_attempts,
     ), remaining
 
 
@@ -67,7 +70,16 @@ class Pi05ACEValidationError(ValueError):
 
 
 def load_ace_checkpoint(checkpoint: Path) -> dict[str, Any]:
-    return torch.load(checkpoint, map_location="cpu", weights_only=False)
+    payload = torch.load(checkpoint, map_location="cpu", weights_only=False)
+    if "confidence_model_config" not in payload and "ace_model_config" in payload:
+        payload["confidence_model_config"] = payload["ace_model_config"]
+    if "confidence_model_state" not in payload and "ace_model_state" in payload:
+        payload["confidence_model_state"] = payload["ace_model_state"]
+    required = ("confidence_model_config", "confidence_model_state", "chunk")
+    missing = [key for key in required if key not in payload]
+    if missing:
+        raise ValueError(f"ACE checkpoint is missing required fields: {', '.join(missing)}")
+    return payload
 
 
 def instantiate_ace(ckpt: dict[str, Any], device: torch.device | str) -> ACEModel:
@@ -106,6 +118,19 @@ def synchronize_cuda(device: torch.device) -> None:
         torch.cuda.synchronize(device)
 
 
+def fit_proprio(state: torch.Tensor | None, expected_dim: int) -> torch.Tensor | None:
+    if state is None:
+        return None
+    if state.ndim > 2:
+        state = state.reshape(state.shape[0], -1)
+    state = state.to(dtype=torch.float32)
+    if state.shape[-1] > expected_dim:
+        return state[..., :expected_dim]
+    if state.shape[-1] < expected_dim:
+        return torch.nn.functional.pad(state, (0, expected_dim - state.shape[-1]))
+    return state
+
+
 def compute_prefix(policy, batch: dict[str, torch.Tensor]) -> dict[str, Any]:
     from lerobot.policies.pi05.modeling_pi05 import make_att_2d_masks
     from lerobot.utils.constants import OBS_LANGUAGE_ATTENTION_MASK, OBS_LANGUAGE_TOKENS
@@ -121,18 +146,23 @@ def compute_prefix(policy, batch: dict[str, torch.Tensor]) -> dict[str, Any]:
     attention_4d = policy.model._prepare_attention_masks_4d(attention_2d)
     policy.model.paligemma_with_expert.paligemma.language_model.config._attn_implementation = "eager"
     _, past_key_values = policy.model.paligemma_with_expert.forward(
-        attention_mask=attention_4d, position_ids=position_ids, past_key_values=None,
-        inputs_embeds=[prefix_embs, None], use_cache=True,
+        attention_mask=attention_4d,
+        position_ids=position_ids,
+        past_key_values=None,
+        inputs_embeds=[prefix_embs, None],
+        use_cache=True,
     )
     return {
         "visual_embed": mean_visual_tokens(prefix_embs, tokens, image_masks).float(),
-        "prefix_pad_masks": prefix_pad_masks, "past_key_values": past_key_values,
+        "prefix_pad_masks": prefix_pad_masks,
+        "past_key_values": past_key_values,
     }
 
 
 @torch.no_grad()
-def denoise_with_prefix(policy, prefix: dict[str, Any], init_action: torch.Tensor, *,
-                        num_steps: int, full_steps: int) -> torch.Tensor:
+def denoise_with_prefix(
+    policy, prefix: dict[str, Any], init_action: torch.Tensor, *, num_steps: int, full_steps: int
+) -> torch.Tensor:
     from lerobot.policies.pi05.modeling_pi05 import pad_vector
     from lerobot.utils.constants import ACTION
 
@@ -143,14 +173,17 @@ def denoise_with_prefix(policy, prefix: dict[str, Any], init_action: torch.Tenso
     for tau in flow_times(num_steps, full_steps, device=x_t.device).tolist():
         timestep = torch.full((x_t.shape[0],), 1.0 - tau, device=x_t.device, dtype=torch.float32)
         x_t = x_t + dt * policy.model.denoise_step(
-            prefix_pad_masks=prefix["prefix_pad_masks"], past_key_values=prefix["past_key_values"],
-            x_t=x_t, timestep=timestep,
+            prefix_pad_masks=prefix["prefix_pad_masks"],
+            past_key_values=prefix["past_key_values"],
+            x_t=x_t,
+            timestep=timestep,
         )
     return x_t[:, :, : policy.config.output_features[ACTION].shape[0]]
 
 
 def patch_pi05_common() -> None:
     from lerobot.policies.pi05.modeling_pi05 import PI05Policy
+
     original = PI05Policy.from_pretrained
 
     def from_pretrained_strict_false(cls, *args, **kwargs):
@@ -162,6 +195,7 @@ def patch_pi05_common() -> None:
 
 def patch_baseline_policy(cfg: InstrumentedConfig) -> None:
     from lerobot.policies.pi05.modeling_pi05 import PI05Policy
+
     original_reset = PI05Policy.reset
     original_predict = PI05Policy.predict_action_chunk
 
@@ -176,11 +210,14 @@ def patch_baseline_policy(cfg: InstrumentedConfig) -> None:
         start = time.perf_counter()
         actions = original_predict(self, batch, **kwargs)
         synchronize_cuda(device)
-        self._instrument_metrics.append({
-            "mode": "baseline", "cache_hit": False,
-            "denoise_steps": int(getattr(self.config, "num_inference_steps", cfg.max_denoise_steps)),
-            "model_inference_s": time.perf_counter() - start,
-        })
+        self._instrument_metrics.append(
+            {
+                "mode": "baseline",
+                "cache_hit": False,
+                "denoise_steps": int(getattr(self.config, "num_inference_steps", cfg.max_denoise_steps)),
+                "model_inference_s": time.perf_counter() - start,
+            }
+        )
         return actions
 
     PI05Policy.reset = reset_with_metrics
@@ -189,7 +226,7 @@ def patch_baseline_policy(cfg: InstrumentedConfig) -> None:
 
 def patch_ace_policy(cfg: InstrumentedConfig) -> None:
     from lerobot.policies.pi05.modeling_pi05 import PI05Policy
-    from lerobot.utils.constants import ACTION, OBS_LANGUAGE_TOKENS, OBS_STATE
+    from lerobot.utils.constants import ACTION, OBS_STATE
 
     original_reset = PI05Policy.reset
 
@@ -228,40 +265,64 @@ def patch_ace_policy(cfg: InstrumentedConfig) -> None:
         start = time.perf_counter()
         prefix = compute_prefix(self, batch)
         curr_visual = prefix["visual_embed"]
-        curr_proprio = batch.get(OBS_STATE)
+        curr_proprio = fit_proprio(batch.get(OBS_STATE), self._ace_confidence_model.proprio_dim)
         cache_hit = self._ace_prev_action_chunk is not None
         confidence = None
         if not cache_hit:
-            noise = self.model.sample_noise((curr_visual.shape[0], horizon, int(self.config.max_action_dim)), device)
-            actions = denoise_with_prefix(self, prefix, noise, num_steps=cfg.max_denoise_steps, full_steps=cfg.max_denoise_steps)
+            noise = self.model.sample_noise(
+                (curr_visual.shape[0], horizon, int(self.config.max_action_dim)), device
+            )
+            actions = denoise_with_prefix(
+                self, prefix, noise, num_steps=cfg.max_denoise_steps, full_steps=cfg.max_denoise_steps
+            )
             denoise_steps = cfg.max_denoise_steps
         else:
             inherited = self._ace_prev_action_chunk[:, execute:horizon].to(device=device, dtype=torch.float32)
             last_action = self._ace_prev_action_chunk[:, execute - 1].to(device=device, dtype=torch.float32)
             previous_visual = self._ace_prev_visual_embed.to(device=device)
-            previous_proprio = self._ace_prev_proprio.to(device=device) if self._ace_prev_proprio is not None else None
-            delta_proprio = curr_proprio - previous_proprio if curr_proprio is not None and previous_proprio is not None else None
+            previous_proprio = (
+                self._ace_prev_proprio.to(device=device) if self._ace_prev_proprio is not None else None
+            )
+            delta_proprio = (
+                curr_proprio - previous_proprio
+                if curr_proprio is not None and previous_proprio is not None
+                else None
+            )
             confidence_full = run_ace_forward(
-                self._ace_confidence_model, curr_visual_embed=curr_visual,
-                delta_visual_embed=curr_visual - previous_visual, curr_proprio=curr_proprio,
-                delta_proprio=delta_proprio, inherited_action=inherited,
-                last_executed_action=last_action, horizon=horizon,
+                self._ace_confidence_model,
+                curr_visual_embed=curr_visual,
+                delta_visual_embed=curr_visual - previous_visual,
+                curr_proprio=curr_proprio,
+                delta_proprio=delta_proprio,
+                inherited_action=inherited,
+                last_executed_action=last_action,
+                horizon=horizon,
             )
             # The model output is H-long; only the inherited L prefix is a
             # confidence signal. The masked Gaussian suffix is ignored.
             confidence = confidence_full[:, : horizon - execute]
             adaptive = AdaptiveInferenceConfig(
-                H=horizon, K=execute, max_denoise_steps=cfg.max_denoise_steps,
-                min_denoise_steps=cfg.min_denoise_steps, confidence_reduce="min",
+                H=horizon,
+                K=execute,
+                max_denoise_steps=cfg.max_denoise_steps,
+                min_denoise_steps=cfg.min_denoise_steps,
+                confidence_reduce="min",
             )
             denoise_steps = confidence_to_denoise_steps(confidence, adaptive)
-            noise = torch.randn(curr_visual.shape[0], horizon, action_dim, device=device, dtype=inherited.dtype)
+            noise = torch.randn(
+                curr_visual.shape[0], horizon, action_dim, device=device, dtype=inherited.dtype
+            )
             weight = confidence.unsqueeze(-1).to(inherited)
-            init_action = torch.cat([
-                weight * inherited + (1.0 - weight) * noise[:, : horizon - execute],
-                noise[:, horizon - execute:],
-            ], dim=1)
-            actions = denoise_with_prefix(self, prefix, init_action, num_steps=denoise_steps, full_steps=cfg.max_denoise_steps)
+            init_action = torch.cat(
+                [
+                    weight * inherited + (1.0 - weight) * noise[:, : horizon - execute],
+                    noise[:, horizon - execute :],
+                ],
+                dim=1,
+            )
+            actions = denoise_with_prefix(
+                self, prefix, init_action, num_steps=denoise_steps, full_steps=cfg.max_denoise_steps
+            )
 
         synchronize_cuda(device)
         if actions.shape != (curr_visual.shape[0], horizon, action_dim) or not torch.isfinite(actions).all():
@@ -269,20 +330,26 @@ def patch_ace_policy(cfg: InstrumentedConfig) -> None:
         self._ace_prev_action_chunk = actions.detach()
         self._ace_prev_visual_embed = curr_visual.detach()
         self._ace_prev_proprio = curr_proprio.detach() if curr_proprio is not None else None
-        self._instrument_metrics.append({
-            "mode": "ace", "cache_hit": bool(cache_hit), "denoise_steps": int(denoise_steps),
-            "model_inference_s": time.perf_counter() - start,
-            "confidence_model_used": bool(cache_hit),
-            "confidence_min": None if confidence is None else float(confidence.min().item()),
-            "confidence_mean": None if confidence is None else float(confidence.mean().item()),
-        })
+        self._instrument_metrics.append(
+            {
+                "mode": "ace",
+                "cache_hit": bool(cache_hit),
+                "denoise_steps": int(denoise_steps),
+                "model_inference_s": time.perf_counter() - start,
+                "confidence_model_used": bool(cache_hit),
+                "confidence_min": None if confidence is None else float(confidence.min().item()),
+                "confidence_mean": None if confidence is None else float(confidence.mean().item()),
+            }
+        )
         return actions
 
     @torch.no_grad()
     def select_with_ace(self, batch):
         ensure_ace(self)
         if not self._ace_action_queue:
-            self._ace_action_queue.extend(predict_with_ace(self, batch)[:, : cfg.execute_steps].transpose(0, 1))
+            self._ace_action_queue.extend(
+                predict_with_ace(self, batch)[:, : cfg.execute_steps].transpose(0, 1)
+            )
         return self._ace_action_queue.popleft()
 
     PI05Policy.reset = reset_with_ace
@@ -304,10 +371,15 @@ def summarize_task_metrics(metrics: dict[str, Any], *, suite: str, task_id: int,
     chunks = metrics.get("chunk_metrics", [])
     model_s = sum(float(row.get("model_inference_s", 0.0)) for row in chunks)
     return {
-        "mode": mode, "suite": suite, "task_id": int(task_id), "episodes": len(successes),
+        "mode": mode,
+        "suite": suite,
+        "task_id": int(task_id),
+        "episodes": len(successes),
         "success_rate": 100.0 * sum(bool(item) for item in successes) / max(1, len(successes)),
-        "successes": [bool(item) for item in successes], "eval_s": metrics.get("eval_s"),
-        "num_chunks": len(chunks), "model_inference_s": model_s,
+        "successes": [bool(item) for item in successes],
+        "eval_s": metrics.get("eval_s"),
+        "num_chunks": len(chunks),
+        "model_inference_s": model_s,
         "model_inference_s_per_chunk": model_s / max(1, len(chunks)),
         "avg_denoise_steps": sum(float(row.get("denoise_steps", 0)) for row in chunks) / max(1, len(chunks)),
         "video_paths": metrics.get("video_paths", []),
@@ -320,21 +392,31 @@ def aggregate_rows(rows: list[dict[str, Any]]) -> dict[str, Any]:
     successes = sum(sum(bool(item) for item in row["successes"]) for row in rows)
     model_s = sum(float(row.get("model_inference_s", 0.0)) for row in rows)
     return {
-        "tasks": len(rows), "episodes": episodes, "success_rate": 100.0 * successes / max(1, episodes),
+        "tasks": len(rows),
+        "episodes": episodes,
+        "success_rate": 100.0 * successes / max(1, episodes),
         "model_inference_s_per_chunk": model_s / max(1, chunks),
-        "avg_denoise_steps": sum(float(row.get("avg_denoise_steps", 0.0)) * int(row["num_chunks"]) for row in rows) / max(1, chunks),
+        "avg_denoise_steps": sum(
+            float(row.get("avg_denoise_steps", 0.0)) * int(row["num_chunks"]) for row in rows
+        )
+        / max(1, chunks),
     }
 
 
-def write_progress(output_dir: Path, cfg: InstrumentedConfig, rows: list[dict[str, Any]], *, final: bool) -> None:
+def write_progress(
+    output_dir: Path, cfg: InstrumentedConfig, rows: list[dict[str, Any]], *, final: bool
+) -> None:
     by_suite: dict[str, list[dict[str, Any]]] = {}
     for row in rows:
         by_suite.setdefault(row["suite"], []).append(row)
     payload = {
-        "status": "complete" if final else "running", "updated_at": time.strftime("%Y-%m-%d %H:%M:%S"),
+        "status": "complete" if final else "running",
+        "updated_at": time.strftime("%Y-%m-%d %H:%M:%S"),
         "config": {**asdict(cfg), "checkpoint": str(cfg.checkpoint) if cfg.checkpoint else None},
-        "completed_tasks": len(rows), "overall_so_far": aggregate_rows(rows),
-        "per_suite_so_far": {key: aggregate_rows(value) for key, value in sorted(by_suite.items())}, "per_task": rows,
+        "completed_tasks": len(rows),
+        "overall_so_far": aggregate_rows(rows),
+        "per_suite_so_far": {key: aggregate_rows(value) for key, value in sorted(by_suite.items())},
+        "per_task": rows,
     }
     output_dir.mkdir(parents=True, exist_ok=True)
     (output_dir / "instrumented_partial.json").write_text(json.dumps(payload, indent=2), encoding="utf-8")
@@ -384,16 +466,19 @@ def main() -> None:
         patch_baseline_policy(cfg)
     else:
         patch_ace_policy(cfg)
-        remaining.extend([
-            f"--policy.n_action_steps={cfg.execute_steps}",
-            f"--policy.num_inference_steps={cfg.max_denoise_steps}",
-        ])
+        remaining.extend(
+            [
+                f"--policy.n_action_steps={cfg.execute_steps}",
+                f"--policy.num_inference_steps={cfg.max_denoise_steps}",
+            ]
+        )
     if output_dir is not None:
         output_dir.mkdir(parents=True, exist_ok=True)
         (output_dir / "task_metrics.jsonl").write_text("", encoding="utf-8")
     patch_eval_metrics(cfg, output_dir)
     sys.argv = [sys.argv[0], *remaining]
     import lerobot.scripts.lerobot_eval as evaluator
+
     evaluator.main()
     if output_dir is not None:
         write_progress(output_dir, cfg, list(getattr(evaluator, "_instrumented_rows", [])), final=True)
