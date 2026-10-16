@@ -6,11 +6,14 @@ from pathlib import Path
 from typing import Any
 
 import torch
+from utils.visual_tokens import image_tokens_from_prefix
+from utils.proprio_tokens import pi05_state_tokens
 from torch import Tensor
 
 import lerobot.policies.pi05.configuration_pi05  # noqa: F401
 import lerobot.policies.pi05.processor_pi05  # noqa: F401
 from lerobot.configs.policies import PreTrainedConfig
+from lerobot.policies.common.vla_utils import prepare_attention_masks_4d
 from lerobot.policies.pi05.modeling_pi05 import PI05Policy, make_att_2d_masks
 from lerobot.processor import PolicyProcessorPipeline
 from lerobot.utils.constants import (
@@ -21,11 +24,41 @@ from lerobot.utils.constants import (
     POLICY_PREPROCESSOR_DEFAULT_NAME,
 )
 
+DEFAULT_LOCAL_PI05_TOKENIZER = Path(
+    "vla-rolling/checkpoints/main/vlm_assets/paligemma-3b-pt-224"
+)
+
+
+def build_processor_overrides(
+    *, device: str, tokenizer_path: str | Path | None = None
+) -> dict[str, dict[str, str]]:
+    """Build portable overrides for a saved LeRobot PI05 processor pipeline."""
+
+    overrides: dict[str, dict[str, str]] = {"device_processor": {"device": device}}
+    if tokenizer_path is not None:
+        overrides["tokenizer_processor"] = {"tokenizer_name": str(tokenizer_path)}
+    return overrides
+
+
+def prepare_attention_masks_4d_compat(policy_model: Any, masks: Tensor) -> Tensor:
+    """Support both older PI05 private helpers and current LeRobot's shared helper."""
+
+    legacy_helper = getattr(policy_model, "_prepare_attention_masks_4d", None)
+    if legacy_helper is not None:
+        return legacy_helper(masks)
+    return prepare_attention_masks_4d(masks)
+
 
 class FrozenPI05Adapter:
     """Frozen PI05 adapter used by ACE confidence post-training."""
 
-    def __init__(self, model_path: str | Path, *, device: str = "cuda") -> None:
+    def __init__(
+        self,
+        model_path: str | Path,
+        *,
+        device: str = "cuda",
+        tokenizer_path: str | Path | None = None,
+    ) -> None:
         self.model_path = Path(model_path)
         self.device = torch.device(device if torch.cuda.is_available() or device == "cpu" else "cpu")
         config = PreTrainedConfig.from_pretrained(str(self.model_path), local_files_only=True)
@@ -42,11 +75,16 @@ class FrozenPI05Adapter:
         for param in self.policy.parameters():
             param.requires_grad_(False)
 
+        resolved_tokenizer_path = tokenizer_path
+        if resolved_tokenizer_path is None and DEFAULT_LOCAL_PI05_TOKENIZER.exists():
+            resolved_tokenizer_path = DEFAULT_LOCAL_PI05_TOKENIZER
         self.preprocessor = PolicyProcessorPipeline.from_pretrained(
             str(self.model_path),
             config_filename=f"{POLICY_PREPROCESSOR_DEFAULT_NAME}.json",
             local_files_only=True,
-            overrides={"device_processor": {"device": str(self.device)}},
+            overrides=build_processor_overrides(
+                device=str(self.device), tokenizer_path=resolved_tokenizer_path
+            ),
         )
 
     @property
@@ -59,7 +97,7 @@ class FrozenPI05Adapter:
 
     @property
     def proprio_dim(self) -> int:
-        return int(self.policy.config.input_features[OBS_STATE].shape[0])
+        return self.visual_dim
 
     @property
     def visual_dim(self) -> int:
@@ -151,20 +189,29 @@ class FrozenPI05Adapter:
         )
         prefix_att_2d_masks = make_att_2d_masks(prefix_pad_masks, prefix_att_masks)
         prefix_position_ids = torch.cumsum(prefix_pad_masks, dim=1) - 1
-        prefix_att_2d_masks_4d = self.policy.model._prepare_attention_masks_4d(prefix_att_2d_masks)
+        prefix_att_2d_masks_4d = prepare_attention_masks_4d_compat(
+            self.policy.model, prefix_att_2d_masks
+        )
         self.policy.model.paligemma_with_expert.paligemma.language_model.config._attn_implementation = "eager"
-        _, past_key_values = self.policy.model.paligemma_with_expert.forward(
+        encoded, past_key_values = self.policy.model.paligemma_with_expert.forward(
             attention_mask=prefix_att_2d_masks_4d,
             position_ids=prefix_position_ids,
             past_key_values=None,
             inputs_embeds=[prefix_embs, None],
             use_cache=True,
         )
-        mask = prefix_pad_masks.to(dtype=prefix_embs.dtype).unsqueeze(-1)
-        visual_embed = (prefix_embs * mask).sum(dim=1) / mask.sum(dim=1).clamp(min=1.0)
+        visual_embed, visual_mask = image_tokens_from_prefix(
+            encoded[0], prefix_pad_masks, num_views=len(images), non_image_tokens=tokens.shape[1]
+        )
+        tokenizer = next(step.input_tokenizer for step in self.preprocessor.steps if hasattr(step, "input_tokenizer"))
+        proprio = pi05_state_tokens(
+            encoded[0], tokens, masks, batch.get("task"), tokenizer,
+            state_dim=int(batch[OBS_STATE].shape[-1]),
+        )
         return {
             "visual_embed": visual_embed.float(),
-            "proprio": self._fit_proprio(batch.get(OBS_STATE)),
+            "visual_mask": visual_mask,
+            "proprio": proprio,
             "prefix_pad_masks": prefix_pad_masks,
             "past_key_values": past_key_values,
         }
@@ -212,6 +259,7 @@ class FrozenPI05Adapter:
             "loss": action_chunk.new_zeros(()),
             "action_chunk": action_chunk.detach(),
             "visual_embed": condition["visual_embed"].detach(),
+            "visual_mask": condition["visual_mask"],
             "proprio": condition["proprio"].detach() if condition["proprio"] is not None else None,
         }
 

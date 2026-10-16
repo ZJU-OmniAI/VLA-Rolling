@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import sys
+from pathlib import Path
 from collections.abc import Sequence
 
 
@@ -13,4 +14,4 @@ def run_with_defaults(defaults: Sequence[str]) -> None:
 
 
 def output_dir(benchmark: str) -> str:
-    return os.environ.get("ACE_EVAL_OUTPUT_DIR", f"vla-rolling/eval_logs/ace_{benchmark}_smoke")
+    return os.environ.get("ACE_EVAL_OUTPUT_DIR", str(Path(__file__).resolve().parents[2] / "eval_logs" / f"ace_{benchmark}_smoke"))

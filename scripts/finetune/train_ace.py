@@ -12,7 +12,7 @@ import torch
 from model import ACEModel
 from model.registry import load_adapter
 from torch.nn.parallel import DistributedDataParallel
-from utils.ace_inputs import run_ace_forward
+from utils.ace_inputs import run_ace_forward, visual_pair_inputs
 from utils.benchmark_pairs import make_reader
 from utils.confidence_loss import ConfidenceLossConfig, confidence_loss
 from utils.confidence_target import AbsoluteRiskTargetConfig, EMAQuantileStats, absolute_risk_target
@@ -35,13 +35,9 @@ def _dist_context(device_arg: str) -> tuple[int, int, int, torch.device]:
 
 
 def _default_model_path(model: str, benchmark: str) -> Path:
-    defaults = {
-        "pi05": "local_models/pi05_libero",
-        "smolvla": "local_models/smolvla_libero",
-        "xvla": "local_models/xvla-libero",
-        "molmoact2": "local_models/MolmoAct2-LIBERO-LeRobot",
-    }
-    return Path(defaults[model])
+    root = Path(__file__).resolve().parents[2] / "checkpoints/main"
+    names = {("xvla", "robotwin"): "X-VLA-RoboTwin2", ("xvla", "libero"): "xvla-libero"}
+    return root / names.get((model, benchmark), f"{model}_{benchmark}")
 
 
 def _default_k(model: str, horizon: int) -> int:
@@ -76,20 +72,22 @@ def _parser(default_benchmark: str) -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Train ACE on a frozen LeRobot VLA adapter.")
     parser.add_argument("--model", choices=("pi05", "smolvla", "xvla", "molmoact2"), required=True)
     parser.add_argument(
-        "--benchmark", choices=("libero", "metaworld", "libero_plus"), default=default_benchmark
+        "--benchmark", choices=("libero", "metaworld", "robotwin"), default=default_benchmark
     )
     parser.add_argument("--model-path", type=Path, default=None)
     parser.add_argument("--dataset-root", type=Path, default=None)
     parser.add_argument("--vlm-model-path", type=Path, default=None)
     parser.add_argument("--processor-path", type=Path, default=None)
+    parser.add_argument("--tokenizer-path", type=Path, default=None)
     parser.add_argument("--fast-tokenizer-path", type=Path, default=None)
     parser.add_argument("--hf-checkpoint-path", type=Path, default=None)
-    parser.add_argument("--output-dir", type=Path, default=Path("vla-rolling/checkpoints/ace"))
+    parser.add_argument("--output-dir", type=Path, default=None)
     parser.add_argument("--horizon", type=int, default=0)
     parser.add_argument("--execute-steps", type=int, default=0)
     parser.add_argument("--steps", type=int, default=4000)
     parser.add_argument(
-        "--batch-size", type=int, default=64, help="Per-process batch size when using torchrun."
+        "--batch-size", type=int, default=16 if default_benchmark == "robotwin" else 64,
+        help="Per-process batch size when using torchrun."
     )
     parser.add_argument("--lr", type=float, default=1e-4)
     parser.add_argument("--weight-decay", type=float, default=1e-4)
@@ -105,6 +103,12 @@ def _parser(default_benchmark: str) -> argparse.ArgumentParser:
     parser.add_argument("--confidence-clip-min", type=float, default=0.02)
     parser.add_argument("--confidence-clip-max", type=float, default=0.98)
     parser.add_argument("--loss-type", choices=("smooth_l1", "l1", "mse"), default="smooth_l1")
+    parser.add_argument(
+        "--asymmetric-loss",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="Weight over-confidence errors more than under-confidence errors.",
+    )
     parser.add_argument("--seed", type=int, default=1)
     parser.add_argument("--device", choices=("cuda", "cpu"), default="cuda")
     parser.add_argument("--log-every", type=int, default=10)
@@ -114,6 +118,20 @@ def _parser(default_benchmark: str) -> argparse.ArgumentParser:
     return parser
 
 
+def resolve_training_paths(args):
+    model_path = args.model_path or _default_model_path(args.model, args.benchmark)
+    if args.benchmark == "robotwin":
+        from utils.robotwin import default_robotwin_dataset
+
+        default_dataset = default_robotwin_dataset(args.model, model_path)
+        default_output = Path(__file__).resolve().parents[2] / "checkpoints/ace" / f"{args.model}_robotwin"
+    else:
+        default_dataset = Path(__file__).resolve().parents[2] / "data" / {"libero": "libero", "metaworld": "metaworld_mt50"}[args.benchmark]
+        default_output = Path(__file__).resolve().parents[2] / "checkpoints/ace" / f"{args.model}_{args.benchmark}"
+    args.output_dir = args.output_dir or default_output
+    return model_path, args.dataset_root or default_dataset
+
+
 def main(default_benchmark: str = "libero") -> None:
     parser = _parser(default_benchmark)
     args = parser.parse_args()
@@ -121,16 +139,16 @@ def main(default_benchmark: str = "libero") -> None:
     is_main = rank == 0
     rng = _seed_everything(args.seed + rank)
 
-    model_path = args.model_path or _default_model_path(args.model, args.benchmark)
-    dataset_defaults = {
-        "libero": Path("vla-rolling/data/libero"),
-        "metaworld": Path("vla-rolling/data/metaworld_mt50"),
-        "libero_plus": Path("vla-rolling/data/libero_plus"),
-    }
-    dataset_root = args.dataset_root or dataset_defaults[args.benchmark]
+    model_path, dataset_root = resolve_training_paths(args)
+    action_contract = None
+    if args.benchmark == "robotwin":
+        from utils.robotwin import validate_robotwin_training
+
+        action_contract = validate_robotwin_training(dataset_root, args.model, model_path)
     adapter_kwargs = {
         "vlm_model_path": args.vlm_model_path,
         "processor_path": args.processor_path,
+        "tokenizer_path": args.tokenizer_path,
         "fast_tokenizer_path": args.fast_tokenizer_path,
         "hf_checkpoint_path": args.hf_checkpoint_path,
         "execute_steps": args.execute_steps or 5,
@@ -163,7 +181,7 @@ def main(default_benchmark: str = "libero") -> None:
     )
     loss_cfg = ConfidenceLossConfig(
         loss_type=args.loss_type,
-        asymmetric=True,
+        asymmetric=args.asymmetric_loss,
         over_confidence_weight=2.0,
         under_confidence_weight=1.0,
     )
@@ -202,6 +220,18 @@ def main(default_benchmark: str = "libero") -> None:
                     "batch_size_per_process": args.batch_size,
                     "world_size": world_size,
                     "ace_parameters": sum(parameter.numel() for parameter in model.parameters()),
+                    "confidence_loss": {
+                        "loss_type": loss_cfg.loss_type,
+                        "asymmetric": loss_cfg.asymmetric,
+                        "over_confidence_weight": loss_cfg.over_confidence_weight,
+                        "under_confidence_weight": loss_cfg.under_confidence_weight,
+                    },
+                    "quantile_calibration": {
+                        "q_low": args.q_low,
+                        "q_high": args.q_high,
+                        "ema_rate_history": args.ema_rate,
+                        "ddp_global_sync": world_size > 1,
+                    },
                 },
                 indent=2,
             ),
@@ -225,15 +255,24 @@ def main(default_benchmark: str = "libero") -> None:
         with torch.no_grad():
             old_out = adapter(old_batch)
             new_condition = adapter.encode_condition(new_batch)
-            new_visual = new_condition["visual_embed"].detach()
             new_proprio = new_condition.get("proprio")
             new_proprio = new_proprio.detach() if new_proprio is not None else None
+            # Prefix KV caches are only needed by the policy's action sampler.  ACE
+            # training consumes the encoded visual/state features and must release
+            # these large frozen-VLM tensors before the next pair is encoded.
+            new_condition.pop("past_key_values", None)
+            new_condition.pop("prefix_pad_masks", None)
+        if is_main and step == 1:
+            print(json.dumps({"ace_architecture": "vla_encoder_reuse_v4",
+                              "visual_shape": list(new_condition["visual_embed"].shape),
+                              "proprio_shape": list(new_proprio.shape) if new_proprio is not None else None,
+                              "context_tokens": 2 * new_condition["visual_embed"].shape[1] + (2 * (new_proprio.shape[1] if new_proprio.ndim == 3 else 1) if model.use_proprio else 0),
+                              "visual_mask_shape": list(new_condition["visual_mask"].shape) if "visual_mask" in new_condition else None}), flush=True)
         inherited = old_out["action_chunk"][:, execute_steps:horizon]
         gt_overlap = gt_norm[:, execute_steps:horizon]
         raw_full = run_ace_forward(
             train_model,
-            curr_visual_embed=new_visual,
-            delta_visual_embed=new_visual - old_out["visual_embed"],
+            **visual_pair_inputs(new_condition, old_out),
             curr_proprio=new_proprio,
             delta_proprio=(
                 new_proprio - old_out["proprio"]
@@ -292,6 +331,7 @@ def main(default_benchmark: str = "libero") -> None:
         unwrapped = model.module if isinstance(model, DistributedDataParallel) else model
         torch.save(
             {
+                "ace_architecture": "vla_encoder_reuse_v4",
                 "ace_model_state": unwrapped.state_dict(),
                 "ace_model_config": {
                     "visual_dim": unwrapped.visual_dim,
@@ -310,8 +350,22 @@ def main(default_benchmark: str = "libero") -> None:
                 "model_name": args.model,
                 "benchmark": args.benchmark,
                 "model_path": str(model_path),
+                "dataset_root": str(dataset_root),
+                "action_contract": action_contract,
                 "global_step": args.steps,
                 "chunk": {"H": horizon, "K": execute_steps, "L": valid_length},
+                "confidence_loss_config": {
+                    "loss_type": loss_cfg.loss_type,
+                    "asymmetric": loss_cfg.asymmetric,
+                    "over_confidence_weight": loss_cfg.over_confidence_weight,
+                    "under_confidence_weight": loss_cfg.under_confidence_weight,
+                },
+                "quantile_calibration_config": {
+                    "q_low": args.q_low,
+                    "q_high": args.q_high,
+                    "ema_rate_history": args.ema_rate,
+                    "ddp_global_sync": world_size > 1,
+                },
             },
             checkpoint_dir / "model.pt",
         )
@@ -322,6 +376,14 @@ def main(default_benchmark: str = "libero") -> None:
                     "model": args.model,
                     "benchmark": args.benchmark,
                     "checkpoint": str(checkpoint_dir / "model.pt"),
+                    "confidence_loss": {
+                        "loss_type": loss_cfg.loss_type,
+                        "asymmetric": loss_cfg.asymmetric,
+                    },
+                    "quantile_calibration": {
+                        "ema_rate_history": args.ema_rate,
+                        "ddp_global_sync": world_size > 1,
+                    },
                 },
                 indent=2,
             ),

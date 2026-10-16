@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 import torch
+import torch.distributed as dist
 from torch import Tensor
 
 
@@ -20,7 +21,11 @@ class AbsoluteRiskTargetConfig:
 
 
 class EMAQuantileStats:
-    """Per-position exponential-moving quantiles."""
+    """Per-position exponential-moving quantiles with optional DDP sync.
+
+    ``eta`` is the historical decay: with ``eta=0.99``, 99% of the previous
+    estimate is retained and 1% of the current global batch quantile is used.
+    """
 
     def __init__(
         self,
@@ -55,13 +60,12 @@ class EMAQuantileStats:
     def update(self, log_error: Tensor, action_mask: Tensor | None = None) -> None:
         if log_error.ndim != 2 or log_error.shape[1] != self.horizon:
             raise ValueError(f"log_error must be [B,{self.horizon}], got {tuple(log_error.shape)}.")
+        log_error, action_mask = self._gather_batch(log_error, action_mask)
         batch_low = []
         batch_high = []
         for index in range(self.horizon):
             values = log_error[:, index]
             if action_mask is not None:
-                if action_mask.shape != log_error.shape:
-                    raise ValueError("action_mask must have the same shape as log_error.")
                 values = values[action_mask[:, index].to(device=values.device, dtype=torch.bool)]
             if values.numel() == 0:
                 batch_low.append(self.q_low_value[index])
@@ -76,10 +80,45 @@ class EMAQuantileStats:
             self.q_low_value.copy_(q_low_batch)
             self.q_high_value.copy_(q_high_batch)
         else:
-            # Update each position with the current batch quantile.
-            self.q_low_value.mul_(1.0 - self.eta).add_(q_low_batch, alpha=self.eta)
-            self.q_high_value.mul_(1.0 - self.eta).add_(q_high_batch, alpha=self.eta)
+            # ``eta`` is the history/decay weight; the new global batch has
+            # weight ``1-eta``.  With eta=.99 this is 99% history, 1% new data.
+            self.q_low_value.mul_(self.eta).add_(q_low_batch, alpha=1.0 - self.eta)
+            self.q_high_value.mul_(self.eta).add_(q_high_batch, alpha=1.0 - self.eta)
         self.num_updates += 1
+
+    @staticmethod
+    def _gather_batch(log_error: Tensor, action_mask: Tensor | None) -> tuple[Tensor, Tensor | None]:
+        """Gather variable-size rank batches once for global per-position quantiles."""
+        if action_mask is not None and action_mask.shape != log_error.shape:
+            raise ValueError("action_mask must have the same shape as log_error.")
+        if not (dist.is_available() and dist.is_initialized() and dist.get_world_size() > 1):
+            return log_error, action_mask
+        values = log_error.float().contiguous()
+        count = torch.tensor([values.shape[0]], dtype=torch.long, device=values.device)
+        counts = [torch.zeros_like(count) for _ in range(dist.get_world_size())]
+        dist.all_gather(counts, count)
+        counts_int = [int(item.item()) for item in counts]
+        max_count = max(counts_int, default=0)
+        if max_count == 0:
+            return values, action_mask
+        padded = torch.zeros(max_count, values.shape[1], dtype=values.dtype, device=values.device)
+        padded[: values.shape[0]] = values
+        gathered_values = [torch.zeros_like(padded) for _ in counts_int]
+        dist.all_gather(gathered_values, padded)
+        global_values = torch.cat(
+            [item[:size] for item, size in zip(gathered_values, counts_int) if size], dim=0
+        )
+        if action_mask is None:
+            return global_values, None
+        mask = action_mask.to(device=values.device, dtype=torch.uint8).contiguous()
+        padded_mask = torch.zeros(max_count, mask.shape[1], dtype=mask.dtype, device=mask.device)
+        padded_mask[: mask.shape[0]] = mask
+        gathered_masks = [torch.zeros_like(padded_mask) for _ in counts_int]
+        dist.all_gather(gathered_masks, padded_mask)
+        global_mask = torch.cat(
+            [item[:size] for item, size in zip(gathered_masks, counts_int) if size], dim=0
+        ).bool()
+        return global_values, global_mask
 
     def state_dict(self) -> dict[str, Tensor]:
         return {

@@ -1,13 +1,19 @@
+from pathlib import Path
+
 from .benchmark_rollout import output_dir, run_with_defaults
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+ACE_CHECKPOINT = REPO_ROOT / "checkpoints/ace/pi05_libero_H50_K10_L40/checkpoint_last/model.pt"
+PI05_POLICY = REPO_ROOT / "checkpoints/main/pi05_libero"
 
 if __name__ == "__main__":
     run_with_defaults(
         [
             "--instrument.mode=ace",
-            "--ace.checkpoint=vla-rolling/checkpoints/ace/libero/checkpoint_last/model.pt",
+            f"--ace.checkpoint={ACE_CHECKPOINT}",
             "--ace.execute_steps=10",
             "--ace.max_denoise_steps=10",
-            "--policy.path=local_models/pi05_libero",
+            f"--policy.path={PI05_POLICY}",
             "--policy.device=cuda",
             "--policy.use_amp=false",
             "--policy.compile_model=false",

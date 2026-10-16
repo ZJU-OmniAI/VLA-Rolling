@@ -182,4 +182,8 @@ class ParquetDemoReader:
 
 
 def make_reader(dataset_root: str | Path, benchmark: str):
+    if benchmark == "robotwin":
+        from utils.robotwin_dataset import RobotWinDemoReader
+
+        return RobotWinDemoReader(dataset_root)
     return ParquetDemoReader(dataset_root, benchmark=benchmark)

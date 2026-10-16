@@ -11,7 +11,9 @@ def load_adapter(model_name: str, model_path: str | Path, *, device: str, **kwar
     if name == "pi05":
         from model.pi05 import FrozenPI05Adapter
 
-        return FrozenPI05Adapter(model_path, device=device)
+        return FrozenPI05Adapter(
+            model_path, device=device, tokenizer_path=kwargs.get("tokenizer_path")
+        )
     if name == "smolvla":
         from model.smolvla import FrozenSmolVLAAdapter
 
@@ -20,7 +22,10 @@ def load_adapter(model_name: str, model_path: str | Path, *, device: str, **kwar
         from model.xvla import FrozenXVLAAdapter
 
         return FrozenXVLAAdapter(
-            model_path, device=device, action_format=kwargs.get("action_format", "libero")
+            model_path,
+            device=device,
+            action_format=kwargs.get("action_format", "libero"),
+            tokenizer_path=kwargs.get("tokenizer_path"),
         )
     if name == "molmoact2":
         from model.molmoact2 import FrozenMolmoAct2Adapter

@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 import torch
+from utils.visual_tokens import image_tokens_from_prefix
 from torch import Tensor
 
 import lerobot.policies.smolvla.configuration_smolvla  # noqa: F401 - registers config
@@ -22,7 +23,9 @@ from lerobot.utils.constants import (
     POLICY_PREPROCESSOR_DEFAULT_NAME,
 )
 
-DEFAULT_LOCAL_SMOLVLM = Path("local_models/SmolVLM2-500M-Instruct")
+DEFAULT_LOCAL_SMOLVLM = Path(
+    "vla-rolling/checkpoints/main/vlm_assets/SmolVLM2-500M-Video-Instruct"
+)
 
 
 def resolve_local_smolvlm(vlm_model_path: str | Path | None = None) -> Path | None:
@@ -87,7 +90,7 @@ class FrozenSmolVLAAdapter:
 
     @property
     def proprio_dim(self) -> int:
-        return int(self.policy.config.input_features[OBS_STATE].shape[0])
+        return self.visual_dim
 
     @property
     def max_steps(self) -> int:
@@ -101,6 +104,10 @@ class FrozenSmolVLAAdapter:
 
     def preprocess_one(self, obs: dict[str, Any], action: Tensor | None = None) -> dict[str, Any]:
         raw = dict(obs)
+        # The shared reader canonicalizes MetaWorld's singular image key;
+        # saved MetaWorld processors still rename that original key to camera1.
+        if "observation.images.image" in raw and "observation.image" not in raw:
+            raw["observation.image"] = raw["observation.images.image"]
         if action is not None:
             raw[ACTION] = action
         return self.preprocessor(raw)
@@ -171,24 +178,27 @@ class FrozenSmolVLAAdapter:
         )
         prefix_att_2d_masks = make_att_2d_masks(prefix_pad_masks, prefix_att_masks)
         prefix_position_ids = torch.cumsum(prefix_pad_masks, dim=1) - 1
-        _, past_key_values = self.policy.model.vlm_with_expert.forward(
+        encoded, past_key_values = self.policy.model.vlm_with_expert.forward(
             attention_mask=prefix_att_2d_masks,
             position_ids=prefix_position_ids,
             past_key_values=None,
             inputs_embeds=[prefix_embs, None],
             use_cache=self.policy.config.use_cache,
-            fill_kv_cache=True,
         )
-        mask = prefix_pad_masks.to(dtype=prefix_embs.dtype).unsqueeze(-1)
-        visual_embed = (prefix_embs * mask).sum(dim=1) / mask.sum(dim=1).clamp(min=1.0)
+        state_tokens = 1 if state.ndim == 2 else state.shape[1]
+        # embed_prefix may append fixed-length padding after the state token.
+        prefix_end = int(torch.nonzero(prefix_pad_masks.any(dim=0))[-1].item()) + 1
+        visual_embed, visual_mask = image_tokens_from_prefix(
+            encoded[0][:, :prefix_end], prefix_pad_masks[:, :prefix_end], num_views=len(images),
+            non_image_tokens=tokens.shape[1] + state_tokens,
+            special_tokens=self.policy.model.add_image_special_tokens,
+        )
         self._visual_dim = int(visual_embed.shape[-1])
-        proprio = batch.get(OBS_STATE)
-        if proprio is not None and proprio.ndim > 2:
-            proprio = proprio[:, -1]
-        if proprio is not None:
-            proprio = proprio[:, : self.proprio_dim]
+        # Reuse the state token after the frozen VLM, including its state_proj.
+        proprio = encoded[0][:, prefix_end-state_tokens:prefix_end].float()
         return {
             "visual_embed": visual_embed.float(),
+            "visual_mask": visual_mask,
             "proprio": proprio.float() if proprio is not None else None,
             "state": state,
             "prefix_pad_masks": prefix_pad_masks,
@@ -230,6 +240,7 @@ class FrozenSmolVLAAdapter:
             "loss": action_chunk.new_zeros(()),
             "action_chunk": action_chunk.detach(),
             "visual_embed": condition["visual_embed"].detach(),
+            "visual_mask": condition["visual_mask"],
             "proprio": condition["proprio"].detach() if condition["proprio"] is not None else None,
         }
 

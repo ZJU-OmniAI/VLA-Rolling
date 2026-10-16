@@ -2,15 +2,45 @@ __pycache__/
 *.py[cod]
 *.egg-info/
 
-checkpoints/*
-!checkpoints/.gitkeep
-
-data/libero/
-data/metaworld_mt50/
-data/libero_plus/
-
 logs/
 eval_logs/
 outputs/
 wandb/
 *.log
+
+# Local environments and caches
+.venv/
+.uv-cache/
+.pytest_cache/
+.ruff_cache/
+*.so
+build/
+dist/
+
+# Local validation, experiment documentation and large artifacts
+/test/
+/tests/
+/docs/
+# Local experiment queues; public usage calls the Python entry points directly.
+/scripts/finetune/run_ace_sequence.sh
+/scripts/finetune/run_robotwin_ace_sequence.sh
+/checkpoints/
+# Temporary compatibility link for the already-running training queue.
+/checkpoints_ace
+/data/
+/vla-rolling/
+/src/**/.git/
+/src/**/.github/
+/src/**/.circleci/
+/src/**/.venv/
+/src/**/tests/
+/src/**/docs/
+/src/pytorch3d/website/
+# Download these pinned simulator sources with scripts/setup_robotwin.py.
+/src/RoboTwin/*
+!/src/RoboTwin/.gitkeep
+!/src/RoboTwin/envs/
+/src/RoboTwin/envs/*
+!/src/RoboTwin/envs/curobo/
+/src/RoboTwin/envs/curobo/*
+!/src/RoboTwin/envs/curobo/.gitkeep

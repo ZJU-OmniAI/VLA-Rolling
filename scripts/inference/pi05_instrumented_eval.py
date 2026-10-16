@@ -12,10 +12,20 @@ from typing import Any
 
 import torch
 from model import ACEModel
-from model.pi05.visual import mean_visual_tokens
-from utils.ace_inputs import run_ace_forward
+from utils.visual_tokens import image_tokens_from_prefix
+from model.pi05.adapter import prepare_attention_masks_4d_compat
+from utils.proprio_tokens import pi05_state_tokens
+from utils.ace_inputs import run_ace_forward, visual_pair_inputs
 from utils.adaptive_inference import AdaptiveInferenceConfig, confidence_to_denoise_steps
 from utils.flow_schedule import flow_times
+
+
+def local_pi05_tokenizer_path(checkpoint: dict[str, Any]) -> Path:
+    """Prefer this checkout's assets when an ACE checkpoint was moved here."""
+    relative = Path("vlm_assets/paligemma-3b-pt-224")
+    local = Path(__file__).resolve().parents[2] / "checkpoints/main" / relative
+    saved = Path(checkpoint["model_path"]).parent / relative
+    return local if local.is_dir() or not saved.is_dir() else saved
 
 
 @dataclass(frozen=True)
@@ -143,17 +153,25 @@ def compute_prefix(policy, batch: dict[str, torch.Tensor]) -> dict[str, Any]:
     )
     attention_2d = make_att_2d_masks(prefix_pad_masks, prefix_att_masks)
     position_ids = torch.cumsum(prefix_pad_masks, dim=1) - 1
-    attention_4d = policy.model._prepare_attention_masks_4d(attention_2d)
+    attention_4d = prepare_attention_masks_4d_compat(policy.model, attention_2d)
     policy.model.paligemma_with_expert.paligemma.language_model.config._attn_implementation = "eager"
-    _, past_key_values = policy.model.paligemma_with_expert.forward(
+    encoded, past_key_values = policy.model.paligemma_with_expert.forward(
         attention_mask=attention_4d,
         position_ids=position_ids,
         past_key_values=None,
         inputs_embeds=[prefix_embs, None],
         use_cache=True,
     )
+    visual, visual_mask = image_tokens_from_prefix(
+        encoded[0], prefix_pad_masks, num_views=len(images), non_image_tokens=tokens.shape[1]
+    )
+    from lerobot.utils.constants import OBS_STATE
+    proprio = pi05_state_tokens(encoded[0], tokens, token_masks, batch.get("task"),
+                                 policy._ace_state_tokenizer, state_dim=batch[OBS_STATE].shape[-1])
     return {
-        "visual_embed": mean_visual_tokens(prefix_embs, tokens, image_masks).float(),
+        "proprio": proprio,
+        "visual_embed": visual,
+        "visual_mask": visual_mask,
         "prefix_pad_masks": prefix_pad_masks,
         "past_key_values": past_key_values,
     }
@@ -235,6 +253,10 @@ def patch_ace_policy(cfg: InstrumentedConfig) -> None:
             return
         device = next(self.parameters()).device
         checkpoint = load_ace_checkpoint(cfg.checkpoint)
+        from transformers import AutoTokenizer
+        self._ace_state_tokenizer = AutoTokenizer.from_pretrained(
+            str(local_pi05_tokenizer_path(checkpoint)), local_files_only=True
+        )
         validate_pi05_ace_compatibility(self, checkpoint, execute_steps=cfg.execute_steps)
         with preserve_torch_rng_state(device):
             self._ace_confidence_model = instantiate_ace(checkpoint, device)
@@ -244,6 +266,7 @@ def patch_ace_policy(cfg: InstrumentedConfig) -> None:
         original_reset(self)
         self._ace_prev_action_chunk = None
         self._ace_prev_visual_embed = None
+        self._ace_prev_visual_mask = None
         self._ace_prev_proprio = None
         self._ace_action_queue = deque()
         self._instrument_metrics = []
@@ -265,7 +288,7 @@ def patch_ace_policy(cfg: InstrumentedConfig) -> None:
         start = time.perf_counter()
         prefix = compute_prefix(self, batch)
         curr_visual = prefix["visual_embed"]
-        curr_proprio = fit_proprio(batch.get(OBS_STATE), self._ace_confidence_model.proprio_dim)
+        curr_proprio = prefix["proprio"]
         cache_hit = self._ace_prev_action_chunk is not None
         confidence = None
         if not cache_hit:
@@ -290,8 +313,8 @@ def patch_ace_policy(cfg: InstrumentedConfig) -> None:
             )
             confidence_full = run_ace_forward(
                 self._ace_confidence_model,
-                curr_visual_embed=curr_visual,
-                delta_visual_embed=curr_visual - previous_visual,
+                **visual_pair_inputs(prefix, {"visual_embed": previous_visual,
+                                             "visual_mask": self._ace_prev_visual_mask}),
                 curr_proprio=curr_proprio,
                 delta_proprio=delta_proprio,
                 inherited_action=inherited,
@@ -329,6 +352,7 @@ def patch_ace_policy(cfg: InstrumentedConfig) -> None:
             raise Pi05ACEValidationError(f"Invalid PI05 action chunk shape/values: {tuple(actions.shape)}")
         self._ace_prev_action_chunk = actions.detach()
         self._ace_prev_visual_embed = curr_visual.detach()
+        self._ace_prev_visual_mask = prefix["visual_mask"].detach()
         self._ace_prev_proprio = curr_proprio.detach() if curr_proprio is not None else None
         self._instrument_metrics.append(
             {
@@ -426,6 +450,22 @@ def write_progress(
 
 def patch_eval_metrics(cfg: InstrumentedConfig, output_dir: Path | None) -> None:
     import lerobot.scripts.lerobot_eval as evaluator
+
+    original_make_pre_post_processors = evaluator.make_pre_post_processors
+
+    def make_pre_post_processors_with_local_tokenizer(*args, **kwargs):
+        # Older PI05 policy_preprocessor.json files can contain the absolute path
+        # from the machine that produced the base checkpoint.  ACE evaluation
+        # must use the tokenizer colocated with this repository instead.
+        overrides = dict(kwargs.get("preprocessor_overrides") or {})
+        if cfg.mode == "ace" and cfg.checkpoint is not None:
+            ace_payload = load_ace_checkpoint(cfg.checkpoint)
+            tokenizer_path = local_pi05_tokenizer_path(ace_payload)
+            overrides["tokenizer_processor"] = {"tokenizer_name": str(tokenizer_path)}
+            kwargs["preprocessor_overrides"] = overrides
+        return original_make_pre_post_processors(*args, **kwargs)
+
+    evaluator.make_pre_post_processors = make_pre_post_processors_with_local_tokenizer
 
     original_eval_one = evaluator.eval_one
     original_run_one = evaluator.run_one
