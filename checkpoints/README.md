@@ -51,12 +51,11 @@ Replace the folder name with another entry from the table. The resulting path is
 
 ## Download the matching VLA policies
 
-Download the complete upstream snapshot, including configuration, preprocessing/postprocessing files, normalization statistics, and weight shards. Downloading only `model.safetensors` is insufficient. The snapshot links pin the upstream versions checked for this setup.
+Download the complete upstream snapshot, including configuration, preprocessing/postprocessing files, normalization statistics, and weight shards. Downloading only `model.safetensors` is insufficient. The snapshot links pin the upstream versions used by the download instructions.
 
 | Local directory under `checkpoints/main/` | Hugging Face model | Snapshot |
 | --- | --- | --- |
-| `pi05_libero` | [pepijn223/pi05_libero_31_9_non_q](https://huggingface.co/pepijn223/pi05_libero_31_9_non_q) | [7152f13e](https://huggingface.co/pepijn223/pi05_libero_31_9_non_q/tree/7152f13e34c6c115d808aea0e5d08aca74eac14b) |
-| `pi05_metaworld` | [tiantianx/pi05_metaworld](https://huggingface.co/tiantianx/pi05_metaworld) | [a09cdcd5](https://huggingface.co/tiantianx/pi05_metaworld/tree/a09cdcd594579961837a56d8b9fe65a4948fa698) |
+| `pi05_libero` | [lerobot/pi05-libero](https://huggingface.co/lerobot/pi05-libero) | [9ba54312](https://huggingface.co/lerobot/pi05-libero/tree/9ba5431256f4136a01c224ab0307b0d3035cc92c) |
 | `pi05_robotwin` | [SidneyXie/pi05_robotwin](https://huggingface.co/SidneyXie/pi05_robotwin) | [e49e2ab6](https://huggingface.co/SidneyXie/pi05_robotwin/tree/e49e2ab6c11f07511573b67261bd129e88d0a416) |
 | `smolvla_libero` | [lerobot/smolvla_libero](https://huggingface.co/lerobot/smolvla_libero) | [a24f1f38](https://huggingface.co/lerobot/smolvla_libero/tree/a24f1f380461b665158d52acd140152c79e8b36d) |
 | `smolvla_metaworld` | [lerobot/smolvla_metaworld](https://huggingface.co/lerobot/smolvla_metaworld) | [8d82bdf3](https://huggingface.co/lerobot/smolvla_metaworld/tree/8d82bdf3487776404e5e863f585c9d5210b96d14) |
@@ -68,8 +67,8 @@ Download the complete upstream snapshot, including configuration, preprocessing/
 For example, download the PI05 policy paired with the LIBERO ACE checkpoint:
 
 ```bash
-uv run --no-sync hf download pepijn223/pi05_libero_31_9_non_q \
-  --revision 7152f13e34c6c115d808aea0e5d08aca74eac14b \
+uv run --no-sync hf download lerobot/pi05-libero \
+  --revision 9ba5431256f4136a01c224ab0307b0d3035cc92c \
   --local-dir checkpoints/main/pi05_libero
 ```
 
@@ -79,6 +78,7 @@ For the following benchmark-specific policies, fine-tune the corresponding found
 
 | Local directory | Preparation |
 | --- | --- |
+| `pi05_metaworld` | Fine-tune a PI05 foundation model on MetaWorld. |
 | `xvla_metaworld` | Fine-tune [lerobot/xvla-base](https://huggingface.co/lerobot/xvla-base) on MetaWorld. |
 | `molmoact2_metaworld` | Fine-tune [allenai/MolmoAct2](https://huggingface.co/allenai/MolmoAct2) on MetaWorld. |
 | `molmoact2_robotwin` | Fine-tune [allenai/MolmoAct2](https://huggingface.co/allenai/MolmoAct2) on RoboTwin. |
