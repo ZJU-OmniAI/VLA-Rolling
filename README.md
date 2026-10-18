@@ -2,19 +2,11 @@
 
 ### VLA-Rolling: Fewer Denoising Steps, Better Control via Adaptive Action Reuse
 
-Sicheng He, Yi Pan, Qiuting Yu, Jiaming Huang, Qi Lu, Shuyan Wu, Hongyan Feng, Xuanyu Liu, Jun Zhang, Jie Zhang, Wenqi Zhang, Xuhong Zhang, Jianwei Yin
-
-**Zhejiang University · OmniAI Group, ACES Lab**
-
-[Paper (PDF)](assets/paper/VLA_Rolling_OmniAI.pdf) · [Project Page](https://chenbao123ww.github.io/VLA-Rolling-site/) · [ACE Checkpoints](https://huggingface.co/Chenbao77/VLA-Rolling)
-
-[Demo](#demo) · [Overview](#overview) · [Abstract](#abstract) · [Method](#method) · [Result](#result) · [Installation](#installation) · [Training](#training) · [Evaluation and Inference](#evaluation-and-inference) · [Citation](#citation)
+[PDF](assets/paper/VLA_Rolling_OmniAI.pdf) · [Project Page](https://chenbao123ww.github.io/VLA-Rolling-site/) · [Installation](#installation) · [Training](#training) · [Evaluation and Inference](#evaluation-and-inference) · [Citation](#citation)
 
 ## Demo
 
-[![Watch the VLA-Rolling demo: fewer denoising steps, better control through adaptive action reuse.](assets/figures/demo-preview.jpg)](assets/videos/VLA-Rolling_demo_EN_v6_1080p30.mp4)
-
-[Watch / download the English demo](assets/videos/VLA-Rolling_demo_EN_v6_1080p30.mp4) · 5 min 54 s · 1080p, 30 fps
+<video src="https://github.com/chenbao123ww/VLA-Rolling/raw/refs/heads/main/assets/demo.mp4" controls="controls" width="100%"></video>
 
 ## Overview
 
