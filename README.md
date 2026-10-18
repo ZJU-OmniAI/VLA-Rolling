@@ -6,7 +6,7 @@
 
 ## Demo
 
-<video src="https://github.com/chenbao123ww/VLA-Rolling/raw/refs/heads/main/assets/demo.mp4" controls="controls" width="100%"></video>
+https://github.com/user-attachments/assets/6b140d35-db40-4aaa-bb9e-0033c23ab3fb
 
 ## Overview
 
