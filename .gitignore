@@ -29,7 +29,9 @@ dist/
 !/checkpoints/README.md
 # Temporary compatibility link for the already-running training queue.
 /checkpoints_ace
-/data/
+# Keep dataset download instructions; exclude local datasets and caches.
+/data/*
+!/data/README.md
 /vla-rolling/
 # Download source dependencies using src/README.md; retain local installations.
 /src/*
