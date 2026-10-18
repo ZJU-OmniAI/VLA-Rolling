@@ -215,6 +215,19 @@ Rollout arguments use **`--group.argument=value`** and override the wrapper defa
 
 Select the matching policy and ACE checkpoint when switching benchmarks. For LIBERO-Plus, use LIBERO weights and install the additional benchmark assets as described in [src/README.md](src/README.md).
 
+## Repository Structure
+
+```text
+VLA-Rolling/
+├── assets/       # Paper, figures, and demo media
+├── checkpoints/  # Checkpoint download guide and locally downloaded weights
+├── data/         # Dataset download guide and local training data
+├── model/        # Policy adapters and ACE model implementations
+├── scripts/      # Training, inference, and setup entry points
+├── src/          # Dependency installation guide and local source dependencies
+└── utils/        # Shared data processing and runtime utilities
+```
+
 ## Citation
 
 If you use VLA-Rolling in your research, please cite our paper. Publication details will be added here.
