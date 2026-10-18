@@ -121,7 +121,7 @@ Set `CUDA_HOME` and `TORCH_CUDA_ARCH_LIST` for your installation (`8.9` is for R
 
 ### Prepare data and checkpoints
 
-Download the benchmark data, a policy checkpoint for the target benchmark, and any tokenizer/VLM assets it requires. Datasets and weights are not included in this repository. The examples use:
+Download the benchmark data, a policy checkpoint for the target benchmark, and any tokenizer/VLM assets it requires. Datasets and weights are not included in this repository. Follow [checkpoints/README.md](checkpoints/README.md) for per-model Hugging Face links, download commands, required tokenizer/VLM assets, and checkpoint usage. The examples use:
 
 - `data/libero`, `data/metaworld_mt50`, and `data/robotwin_unified` for benchmark data.
 - `checkpoints/main/` for policy checkpoints and tokenizer/VLM assets.

@@ -24,7 +24,9 @@ dist/
 # Local experiment queues; public usage calls the Python entry points directly.
 /scripts/finetune/run_ace_sequence.sh
 /scripts/finetune/run_robotwin_ace_sequence.sh
-/checkpoints/
+# Keep checkpoint download instructions; exclude weights and caches.
+/checkpoints/*
+!/checkpoints/README.md
 # Temporary compatibility link for the already-running training queue.
 /checkpoints_ace
 /data/
