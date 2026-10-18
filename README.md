@@ -9,7 +9,14 @@ Xuanyu Liu, Jun Zhang, Jie Zhang, Wenqi Zhang, Xuhong Zhang, Jianwei Yin</p>
 
 </div>
 
-[PDF](assets/paper/VLA_Rolling_OmniAI.pdf) · [Project Page](https://chenbao123ww.github.io/VLA-Rolling-site/) · [Installation](#installation) · [Training](#training) · [Evaluation and Inference](#evaluation-and-inference) · [Citation](#citation)
+<p align="center">
+  <a href="assets/paper/VLA_Rolling_OmniAI.pdf">[PDF]</a> ·
+  <a href="https://chenbao123ww.github.io/VLA-Rolling-site/">[Project Page]</a> ·
+  <a href="#installation">[Installation]</a> ·
+  <a href="#training">[Training]</a> ·
+  <a href="#evaluation-and-inference">[Evaluation and Inference]</a> ·
+  <a href="#citation">[Citation]</a>
+</p>
 
 ## Demo
 
