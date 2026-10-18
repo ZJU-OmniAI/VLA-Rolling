@@ -78,7 +78,7 @@ For the following benchmark-specific policies, fine-tune the corresponding found
 
 | Local directory | Preparation |
 | --- | --- |
-| `pi05_metaworld` | Fine-tune a PI05 foundation model on MetaWorld. |
+| `pi05_metaworld` | Fine-tune [lerobot/pi05_base](https://huggingface.co/lerobot/pi05_base) on MetaWorld. |
 | `xvla_metaworld` | Fine-tune [lerobot/xvla-base](https://huggingface.co/lerobot/xvla-base) on MetaWorld. |
 | `molmoact2_metaworld` | Fine-tune [allenai/MolmoAct2](https://huggingface.co/allenai/MolmoAct2) on MetaWorld. |
 | `molmoact2_robotwin` | Fine-tune [allenai/MolmoAct2](https://huggingface.co/allenai/MolmoAct2) on RoboTwin. |
