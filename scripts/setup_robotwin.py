@@ -10,12 +10,15 @@ import subprocess
 import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
-MANIFEST = ROOT / 'src/robotwin-sources.json'
+MANIFEST = ROOT / 'scripts/source_manifests/robotwin.json'
 
 
 def digest(path: Path) -> str:
+    hasher = hashlib.sha256()
     with path.open('rb') as stream:
-        return hashlib.file_digest(stream, 'sha256').hexdigest()
+        for block in iter(lambda: stream.read(1024 * 1024), b''):
+            hasher.update(block)
+    return hasher.hexdigest()
 
 
 def verify(destination: Path, files: dict) -> list[str]:

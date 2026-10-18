@@ -1,6 +1,13 @@
-# VLA-Rolling
+<div align="center">
 
-### VLA-Rolling: Fewer Denoising Steps, Better Control via Adaptive Action Reuse
+<h1>VLA-Rolling: Fewer Denoising Steps,<br>Better Control via Adaptive Action Reuse</h1>
+
+<p>Sicheng He, Yi Pan, Qiuting Yu, Jiaming Huang, Qi Lu, Shuyan Wu, Hongyan Feng,<br>
+Xuanyu Liu, Jun Zhang, Jie Zhang, Wenqi Zhang, Xuhong Zhang, Jianwei Yin</p>
+
+<p><strong>Zhejiang University</strong><br>OmniAI Group of ZJU ACES Lab</p>
+
+</div>
 
 [PDF](assets/paper/VLA_Rolling_OmniAI.pdf) · [Project Page](https://chenbao123ww.github.io/VLA-Rolling-site/) · [Installation](#installation) · [Training](#training) · [Evaluation and Inference](#evaluation-and-inference) · [Citation](#citation)
 
@@ -83,7 +90,7 @@ git clone https://github.com/chenbao123ww/VLA-Rolling.git
 cd VLA-Rolling
 ```
 
-LeRobot and PyTorch3D sources are included under `src/`. RoboTwin/cuRobo are downloaded separately into the provided placeholder directories. Follow **[src/README.md](src/README.md)** for the pinned source setup and benchmark asset downloads before installing simulation dependencies.
+**Before running `uv sync`, follow [src/README.md](src/README.md) to download the pinned LeRobot source and apply the supplied compatibility patch.** Only that guide is tracked under `src/`; dependency source code is downloaded locally. For RoboTwin simulation, also follow the guide to obtain PyTorch3D, RoboTwin, cuRobo, and the simulator assets. Return here after preparing the required sources to install the root uv environment.
 
 ### Install the environment
 
@@ -100,7 +107,7 @@ uv sync --locked --extra eval
 
 Run all commands from this repository's root. Its `pyproject.toml` and `uv.lock` define the environment, including LeRobot's dependency versions. Use `uv sync --locked` for training without simulator dependencies. Preserve the extras you need when syncing again; the commands below use `uv run --no-sync` to run the installed environment. Add `--extra wandb` when installing if you want W&B logging.
 
-For RoboTwin simulation, download the assets listed in [src/README.md](src/README.md) and build the native extensions:
+For RoboTwin simulation, first complete the optional source and asset setup in [src/README.md](src/README.md), then install the simulation dependencies and build the native extensions:
 
 ```bash
 uv sync --locked --extra eval --extra robotwin

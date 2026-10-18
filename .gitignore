@@ -29,18 +29,6 @@ dist/
 /checkpoints_ace
 /data/
 /vla-rolling/
-/src/**/.git/
-/src/**/.github/
-/src/**/.circleci/
-/src/**/.venv/
-/src/**/tests/
-/src/**/docs/
-/src/pytorch3d/website/
-# Download these pinned simulator sources with scripts/setup_robotwin.py.
-/src/RoboTwin/*
-!/src/RoboTwin/.gitkeep
-!/src/RoboTwin/envs/
-/src/RoboTwin/envs/*
-!/src/RoboTwin/envs/curobo/
-/src/RoboTwin/envs/curobo/*
-!/src/RoboTwin/envs/curobo/.gitkeep
+# Download source dependencies using src/README.md; retain local installations.
+/src/*
+!/src/README.md
