@@ -75,15 +75,15 @@ uv run --no-sync hf download pepijn223/pi05_libero_31_9_non_q \
 
 For another policy, replace the repository ID, revision (the full commit in its snapshot link), and local directory with the corresponding table entry. Preserve the directory names, including `xvla-libero` and `X-VLA-RoboTwin2`, to use the training scripts' default paths.
 
-The following benchmark-specific policies exist in the local experiments but currently have **no verified public download link**:
+For the following benchmark-specific policies, fine-tune the corresponding foundation model yourself and save it to the indicated directory under `checkpoints/main/`:
 
-| Local directory | Availability |
+| Local directory | Preparation |
 | --- | --- |
-| `xvla_metaworld` | Local MetaWorld fine-tune initialized from [lerobot/xvla-base](https://huggingface.co/lerobot/xvla-base). Its released ACE checkpoint requires the matching fine-tuned policy, which still needs to be published. |
-| `molmoact2_metaworld` | Local MetaWorld fine-tune of [allenai/MolmoAct2](https://huggingface.co/allenai/MolmoAct2); the benchmark-specific weights still need to be published. |
-| `molmoact2_robotwin` | Local RoboTwin fine-tune; the benchmark-specific weights still need to be published. |
+| `xvla_metaworld` | Fine-tune [lerobot/xvla-base](https://huggingface.co/lerobot/xvla-base) on MetaWorld. |
+| `molmoact2_metaworld` | Fine-tune [allenai/MolmoAct2](https://huggingface.co/allenai/MolmoAct2) on MetaWorld. |
+| `molmoact2_robotwin` | Fine-tune [allenai/MolmoAct2](https://huggingface.co/allenai/MolmoAct2) on RoboTwin. |
 
-The upstream foundation models are initialization sources, not replacements for these fine-tuned policies. Downloading all nine ACE checkpoints alone therefore does not yet reproduce the X-VLA/MetaWorld setup.
+Then train ACE against your fine-tuned policy using the [training instructions](../README.md#training). ACE checkpoints are tied to the policy used during ACE training.
 
 ### SmolVLA configuration used with this ACE release
 
