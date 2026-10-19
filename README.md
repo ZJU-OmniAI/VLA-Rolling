@@ -20,7 +20,7 @@ Xuanyu Liu, Jun Zhang, Jie Zhang, Wenqi Zhang, Xuhong Zhang, Jianwei Yin</p>
 
 ## Demo
 
-https://github.com/user-attachments/assets/6b140d35-db40-4aaa-bb9e-0033c23ab3fb
+https://github.com/user-attachments/assets/5f9169f9-d248-4cc2-9c9b-41fd252e506b
 
 ## Overview
 
