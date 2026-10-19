@@ -93,7 +93,7 @@ VLA-Rolling reduces inference cost by **5.00–32.52%** across all 16 pairs. Suc
 ### Clone and prepare dependencies
 
 ```bash
-git clone https://github.com/chenbao123ww/VLA-Rolling.git
+git clone https://github.com/ZJU-OmniAI/VLA-Rolling.git
 cd VLA-Rolling
 ```
 
