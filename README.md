@@ -230,13 +230,16 @@ VLA-Rolling/
 
 ## Citation
 
-If you use VLA-Rolling in your research, please cite our paper. Publication details will be added here.
+If you use VLA-Rolling in your research, please cite our [paper](https://arxiv.org/abs/2610.25043):
 
 ```bibtex
-@misc{vlarolling,
-  title  = {TODO: Paper title},
-  author = {TODO: Authors},
-  year   = {TODO: Year},
-  url    = {TODO: Paper URL}
+@misc{he2026vlarollingfewerdenoisingsteps,
+      title={VLA-Rolling: Fewer Denoising Steps, Better Control via Adaptive Action Reuse},
+      author={Sicheng He and Yi Pan and Qiuting Yu and Jiaming Huang and Qi Lu and Shuyan Wu and Hongyan Feng and Xuanyu Liu and Jun Zhang and Jie Zhang and Wenqi Zhang and Xuhong Zhang and Jianwei Yin},
+      year={2026},
+      eprint={2610.25043},
+      archivePrefix={arXiv},
+      primaryClass={cs.AI},
+      url={https://arxiv.org/abs/2610.25043},
 }
 ```
