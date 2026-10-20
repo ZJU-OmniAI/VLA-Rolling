@@ -18,11 +18,15 @@ Xuanyu Liu, Jun Zhang, Jie Zhang, Wenqi Zhang, Xuhong Zhang, Jianwei Yin</p>
   <a href="#citation">[Citation]</a>
 </p>
 
-## Demo
+<a name="demo"></a>
+
+## 🎬 Demo
 
 https://github.com/user-attachments/assets/5f9169f9-d248-4cc2-9c9b-41fd252e506b
 
-## Overview
+<a name="overview"></a>
+
+## 🌟 Overview
 
 **Reuse the action tail. Estimate how much to trust it. Refine with an adaptive denoising budget.**
 
@@ -34,32 +38,46 @@ Action-chunked VLA policies typically execute a short prefix, discard the remain
 
 The paper reports **lower action-chunk inference cost in all 16 model–benchmark pairs**, **up to 1.48× speedup**, and **success-rate improvements in 14 pairs**, with a maximum gain of **15.08 percentage points**.
 
-## Abstract
+<a name="abstract"></a>
+
+## 📝 Abstract
 
 Flow-matching vision-language-action (VLA) models generate an action chunk by iteratively denoising Gaussian noise, but typically execute only a short prefix before replanning with updated observations. Under this receding-horizon paradigm, the unexecuted remainder—the action tail—is discarded, and the next chunk is regenerated from fresh noise. We show that this discarded tail retains transferable denoising progress: action-tail initialization can match or outperform a native 10-step Gaussian baseline using fewer denoising steps. However, the optimal denoising budget varies substantially across samples, indicating that tail reuse should be adapted to the updated environment. Based on this observation, we introduce VLA-Rolling, a lightweight inference framework that reuses action tails through three stages: action-tail inheritance, per-action confidence estimation, and confidence-guided refinement through renoising and denoising budget allocation, while the underlying VLA remains frozen. Across π₀.₅, SmolVLA, X-VLA, and MolmoAct2 on LIBERO, MetaWorld, LIBERO-Plus, and RoboTwin 2.0, VLA-Rolling reduces action-chunk inference cost in all 16 model–benchmark pairs, achieving up to a 1.48× speedup, while improving success rate in 14 pairs by up to 15.08 percentage points. These results show that action tails are not merely discarded predictions, but reusable intermediate states that enable more efficient and accurate VLA inference.
 
-## Method
+<a name="method"></a>
+
+## 🧠 Method
 
 ![VLA-Rolling method: action-tail inheritance, action confidence estimation, and confidence-guided renoising and adaptive denoising; ACE is trained with the VLA frozen.](assets/figures/method.svg)
 
 *Figure 4. The rolling inference loop and offline ACE training procedure from the paper.*
 
-### 1. Action-Tail Inheritance
+<a name="1-action-tail-inheritance"></a>
+
+### ♻️ 1. Action-Tail Inheritance
 
 After executing the first **K** actions of an **H**-step chunk, retain the remaining **L = H − K** actions and align them with the next planning window. Cache the previous observation context so that reuse can be assessed against the new observation.
 
-### 2. Action Confidence Estimation
+<a name="2-action-confidence-estimation"></a>
+
+### 🎯 2. Action Confidence Estimation
 
 ACE predicts a confidence score for each inherited action using the **current visual and proprioceptive context and their changes**. It learns from temporally paired demonstrations: inherited actions closer to the aligned demonstrated actions receive higher confidence targets. Only ACE is trained; the underlying VLA remains frozen.
 
-### 3. Confidence-Guided Refinement
+<a name="3-confidence-guided-refinement"></a>
+
+### ✨ 3. Confidence-Guided Refinement
 
 - **Confidence-guided renoising:** blend each inherited action with Gaussian noise according to its confidence. Reliable actions retain more of their previous prediction; unreliable actions receive more noise. Newly introduced positions start from Gaussian noise.
 - **Adaptive-step denoising:** use the minimum confidence across the inherited tail to allocate a bounded denoising budget. Refine the chunk under the current observation, execute its prefix, and carry its new tail into the next round.
 
-## Result
+<a name="result"></a>
 
-### Overall Performance
+## 📊 Result
+
+<a name="overall-performance"></a>
+
+### 🏆 Overall Performance
 
 The following results are from **Table 1 of the [paper](assets/paper/VLA_Rolling_OmniAI.pdf)**. Each arrow denotes **baseline → + VLA-Rolling**. Success rate (SR) is averaged across tasks; cost is inference time per action chunk. Δ SR is measured in percentage points (pp), and cost reduction is relative to the baseline.
 
@@ -88,9 +106,13 @@ VLA-Rolling reduces inference cost by **5.00–32.52%** across all 16 pairs. Suc
 
 ---
 
-## Installation
+<a name="installation"></a>
 
-### Clone and prepare dependencies
+## 🛠️ Installation
+
+<a name="clone-and-prepare-dependencies"></a>
+
+### 📥 Clone and prepare dependencies
 
 ```bash
 git clone https://github.com/ZJU-OmniAI/VLA-Rolling.git
@@ -99,7 +121,9 @@ cd VLA-Rolling
 
 **Before running `uv sync`, follow [src/README.md](src/README.md) to download the pinned LeRobot source and apply the supplied compatibility patch.** Only that guide is tracked under `src/`; dependency source code is downloaded locally. For RoboTwin simulation, also follow the guide to obtain PyTorch3D, RoboTwin, cuRobo, and the simulator assets. Return here after preparing the required sources to install the root uv environment.
 
-### Install the environment
+<a name="install-the-environment"></a>
+
+### ⚙️ Install the environment
 
 Requirements: Linux x86_64, an NVIDIA GPU with a CUDA 12.8-compatible driver, and system FFmpeg/EGL libraries for video decoding and simulation.
 
@@ -126,7 +150,9 @@ bash scripts/with_robotwin.sh python -c 'import envs, curobo, pytorch3d'
 
 Set `CUDA_HOME` and `TORCH_CUDA_ARCH_LIST` for your installation (`8.9` is for RTX 4090). These extensions are only needed for RoboTwin simulation, not offline ACE training. After building them, use `uv sync --inexact --locked --extra eval --extra robotwin` for subsequent syncs to retain the locally installed extensions.
 
-### Prepare data and checkpoints
+<a name="prepare-data-and-checkpoints"></a>
+
+### 📦 Prepare data and checkpoints
 
 Download the benchmark data, a policy checkpoint for the target benchmark, and any tokenizer/VLM assets it requires. Datasets and weights are not included in this repository. Follow [data/README.md](data/README.md) for dataset downloads and RoboTwin data preparation, and [checkpoints/README.md](checkpoints/README.md) for per-model Hugging Face links, download commands, required tokenizer/VLM assets, and checkpoint usage. The examples use:
 
@@ -136,7 +162,9 @@ Download the benchmark data, a policy checkpoint for the target benchmark, and a
 
 RoboTwin uses the 14D `robotwin_unified` dataset by default. `X-VLA-RoboTwin2` uses the 20D EE6D dataset at `data/robotwin`. Match the dataset to the policy checkpoint. All training paths can be overridden through command-line arguments.
 
-## Training
+<a name="training"></a>
+
+## 🚀 Training
 
 Train ACE with the entry point for your benchmark:
 
@@ -187,9 +215,13 @@ uv run --no-sync python -m scripts.finetune.libero_ace_finetune --help
 
 LIBERO-Plus is evaluation-only and reuses the corresponding LIBERO policy and ACE checkpoint.
 
-## Evaluation and Inference
+<a name="evaluation-and-inference"></a>
 
-### Simulator rollouts
+## 🤖 Evaluation and Inference
+
+<a name="simulator-rollouts"></a>
+
+### 🎮 Simulator rollouts
 
 The current ACE rollout wrappers support **PI05**. Prepare its policy checkpoint, trained ACE checkpoint, and the benchmark's simulator assets before running:
 
@@ -215,7 +247,9 @@ Rollout arguments use **`--group.argument=value`** and override the wrapper defa
 
 Select the matching policy and ACE checkpoint when switching benchmarks. For LIBERO-Plus, use LIBERO weights and install the additional benchmark assets as described in [src/README.md](src/README.md).
 
-## Repository Structure
+<a name="repository-structure"></a>
+
+## 🗂️ Repository Structure
 
 ```text
 VLA-Rolling/
@@ -228,7 +262,9 @@ VLA-Rolling/
 └── utils/        # Shared data processing and runtime utilities
 ```
 
-## Citation
+<a name="citation"></a>
+
+## 📚 Citation
 
 If you use VLA-Rolling in your research, please cite our [paper](https://arxiv.org/abs/2610.25043):
 
