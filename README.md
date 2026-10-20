@@ -10,12 +10,10 @@ Xuanyu Liu, Jun Zhang, Jie Zhang, Wenqi Zhang, Xuhong Zhang, Jianwei Yin</p>
 </div>
 
 <p align="center">
-  <a href="assets/paper/VLA_Rolling_OmniAI.pdf">[PDF]</a> ·
-  <a href="https://chenbao123ww.github.io/VLA-Rolling-site/">[Project Page]</a> ·
-  <a href="#installation">[Installation]</a> ·
-  <a href="#training">[Training]</a> ·
-  <a href="#evaluation-and-inference">[Evaluation and Inference]</a> ·
-  <a href="#citation">[Citation]</a>
+  <a href="https://chenbao123ww.github.io/VLA-Rolling-site/"><img src="https://img.shields.io/badge/Project_Page-1A73E8?style=for-the-badge&amp;logo=googlechrome&amp;logoColor=white" alt="Project Page"></a>
+  <a href="https://arxiv.org/abs/2610.25043"><img src="https://img.shields.io/badge/arXiv-2610.25043-B31B1B?style=for-the-badge&amp;logo=arxiv&amp;logoColor=white" alt="arXiv"></a>
+  <a href="https://huggingface.co/Chenbao77/VLA-Rolling"><img src="https://img.shields.io/badge/Model-FFD21E?style=for-the-badge&amp;logo=huggingface&amp;logoColor=black" alt="Model"></a>
+  <a href="#citation"><img src="https://img.shields.io/badge/Cite-BibTeX-4C8C4A?style=for-the-badge&amp;logo=googlescholar&amp;logoColor=white" alt="Cite"></a>
 </p>
 
 <a name="demo"></a>
